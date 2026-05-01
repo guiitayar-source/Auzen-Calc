@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { lerRecibo } from '../services/geminiService';
 import type { TipoCategoria } from '../data/categories';
 import { useLancamentosStore } from '../store/useLancamentosStore';
 import { useCategoriasStore } from '../store/useCategoriasStore';
+import { Pencil, Trash2, X } from 'lucide-react';
+
+type FiltroTipo = 'Todos' | 'Receita' | 'Despesa';
 
 export default function Lancamentos() {
-  const { lancamentos, addLancamento } = useLancamentosStore();
+  const { lancamentos, addLancamento, updateLancamento, removeLancamento } = useLancamentosStore();
   const { categorias } = useCategoriasStore();
 
   const [descricao, setDescricao] = useState('');
@@ -18,21 +21,47 @@ export default function Lancamentos() {
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<'idle' | 'success' | 'partial' | 'error'>('idle');
 
+  // Estado de edição
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Filtro de visualização
+  const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('Todos');
+
   const categoriasFiltradas = categorias.filter(cat => cat.tipo === tipo);
+
+  const lancamentosFiltrados = useMemo(() => {
+    if (filtroTipo === 'Todos') return lancamentos;
+    return lancamentos.filter(l => l.tipo === filtroTipo);
+  }, [lancamentos, filtroTipo]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!descricao || !valor || !data || !categoriaId) return;
 
-    addLancamento({
-      descricao,
-      valor: parseFloat(valor),
-      data,
-      tipo,
-      categoriaId,
-      status,
-      recorrencia,
-    });
+    if (editingId) {
+      // Modo edição: atualiza o lançamento existente
+      updateLancamento(editingId, {
+        descricao,
+        valor: parseFloat(valor),
+        data,
+        tipo,
+        categoriaId,
+        status,
+        recorrencia,
+      });
+      setEditingId(null);
+    } else {
+      // Modo criação: adiciona novo lançamento
+      addLancamento({
+        descricao,
+        valor: parseFloat(valor),
+        data,
+        tipo,
+        categoriaId,
+        status,
+        recorrencia,
+      });
+    }
 
     // Limpar form
     setDescricao('');
@@ -40,6 +69,36 @@ export default function Lancamentos() {
     setCategoriaId('');
     setStatus('Pago');
     setRecorrencia('Única');
+  };
+
+  const handleEditar = (item: typeof lancamentos[0]) => {
+    setEditingId(item.id);
+    setDescricao(item.descricao);
+    setValor(item.valor.toString());
+    setData(item.data);
+    setTipo(item.tipo);
+    setCategoriaId(item.categoriaId);
+    setStatus(item.status);
+    setRecorrencia(item.recorrencia);
+  };
+
+  const handleCancelarEdicao = () => {
+    setEditingId(null);
+    setDescricao('');
+    setValor('');
+    setCategoriaId('');
+    setStatus('Pago');
+    setRecorrencia('Única');
+  };
+
+  const handleEliminar = (id: string) => {
+    if (window.confirm('Tem a certeza de que deseja eliminar este lançamento?')) {
+      removeLancamento(id);
+      // Se estava editando este item, limpar o form
+      if (editingId === id) {
+        handleCancelarEdicao();
+      }
+    }
   };
 
   const handleLerRecibo = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -104,55 +163,79 @@ export default function Lancamentos() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Área A: Formulário */}
         <div className="lg:col-span-1 bg-auzen-white p-6 rounded-xl shadow-sm border border-auzen-primary/10 h-fit">
-          <h2 className="text-xl font-bold text-auzen-text mb-4">Novo Lançamento</h2>
-
-          {/* Botão de Upload de Recibo */}
-          <div className="mb-4">
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment"
-              id="recibo-upload" 
-              className="hidden" 
-              onChange={handleLerRecibo}
-              disabled={isOcrLoading}
-            />
-            <label 
-              htmlFor="recibo-upload" 
-              className={`flex items-center justify-center gap-2 font-medium py-2.5 px-4 rounded-lg cursor-pointer transition-all border border-dashed text-sm
-                ${ isOcrLoading
-                  ? 'bg-auzen-bg border-auzen-primary/30 text-auzen-primary/60 cursor-not-allowed animate-pulse'
-                  : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border-gray-300 hover:border-auzen-primary/40'
-                }
-              `}
-            >
-              {isOcrLoading ? (
-                <span>⏳ Analisando com IA... Aguarde...</span>
-              ) : (
-                <>
-                  <span>📸</span>
-                  <span>Ler Recibo com IA <span className="text-[10px] bg-auzen-primary/10 text-auzen-primary px-1.5 py-0.5 rounded-full font-bold uppercase">Gemini</span></span>
-                </>
-              )}
-            </label>
-
-            {/* Feedback de resultado */}
-            {ocrStatus === 'success' && (
-              <p className="mt-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                ✅ Dados lidos com sucesso! Confira e ajuste se necessário.
-              </p>
-            )}
-            {ocrStatus === 'partial' && (
-              <p className="mt-2 text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
-                ⚠️ Leitura parcial. Alguns campos precisam ser preenchidos manualmente.
-              </p>
-            )}
-            {ocrStatus === 'error' && (
-              <p className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                ❌ Não foi possível ler o recibo. Tente uma foto mais nítida e bem iluminada.
-              </p>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-auzen-text">
+              {editingId ? 'Editar Lançamento' : 'Novo Lançamento'}
+            </h2>
+            {editingId && (
+              <button
+                onClick={handleCancelarEdicao}
+                className="text-gray-400 hover:text-red-500 transition-colors p-1.5 rounded-full hover:bg-red-50 cursor-pointer"
+                title="Cancelar edição"
+              >
+                <X size={18} />
+              </button>
             )}
           </div>
+
+          {/* Indicador visual de modo edição */}
+          {editingId && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <p className="text-xs text-amber-700 font-medium">
+                ✏️ Editando lançamento. Ajuste os campos e clique em "Atualizar Lançamento".
+              </p>
+            </div>
+          )}
+
+          {/* Botão de Upload de Recibo — oculto em modo edição */}
+          {!editingId && (
+            <div className="mb-4">
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="environment"
+                id="recibo-upload" 
+                className="hidden" 
+                onChange={handleLerRecibo}
+                disabled={isOcrLoading}
+              />
+              <label 
+                htmlFor="recibo-upload" 
+                className={`flex items-center justify-center gap-2 font-medium py-2.5 px-4 rounded-lg cursor-pointer transition-all border border-dashed text-sm
+                  ${ isOcrLoading
+                    ? 'bg-auzen-bg border-auzen-primary/30 text-auzen-primary/60 cursor-not-allowed animate-pulse'
+                    : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border-gray-300 hover:border-auzen-primary/40'
+                  }
+                `}
+              >
+                {isOcrLoading ? (
+                  <span>⏳ Analisando com IA... Aguarde...</span>
+                ) : (
+                  <>
+                    <span>📸</span>
+                    <span>Ler Recibo com IA <span className="text-[10px] bg-auzen-primary/10 text-auzen-primary px-1.5 py-0.5 rounded-full font-bold uppercase">Gemini</span></span>
+                  </>
+                )}
+              </label>
+
+              {/* Feedback de resultado */}
+              {ocrStatus === 'success' && (
+                <p className="mt-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  ✅ Dados lidos com sucesso! Confira e ajuste se necessário.
+                </p>
+              )}
+              {ocrStatus === 'partial' && (
+                <p className="mt-2 text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+                  ⚠️ Leitura parcial. Alguns campos precisam ser preenchidos manualmente.
+                </p>
+              )}
+              {ocrStatus === 'error' && (
+                <p className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  ❌ Não foi possível ler o recibo. Tente uma foto mais nítida e bem iluminada.
+                </p>
+              )}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Tipo (Toggle) */}
@@ -266,23 +349,59 @@ export default function Lancamentos() {
 
             <button 
               type="submit"
-              className="w-full bg-auzen-primary hover:bg-auzen-primary/90 text-white font-medium py-3 px-4 rounded-lg transition-colors shadow-sm cursor-pointer mt-2"
+              className={`w-full font-medium py-3 px-4 rounded-lg transition-colors shadow-sm cursor-pointer mt-2 ${
+                editingId
+                  ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                  : 'bg-auzen-primary hover:bg-auzen-primary/90 text-white'
+              }`}
             >
-              Salvar Lançamento
+              {editingId ? 'Atualizar Lançamento' : 'Salvar Lançamento'}
             </button>
           </form>
         </div>
 
         {/* Área B: Lista */}
         <div className="lg:col-span-2 bg-auzen-white rounded-xl shadow-sm border border-auzen-primary/10 overflow-hidden flex flex-col h-fit max-h-[800px]">
-          <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-auzen-white sticky top-0">
-            <h2 className="text-xl font-bold text-auzen-text">Lançamentos Recentes</h2>
+          <div className="p-6 border-b border-gray-100 bg-auzen-white sticky top-0 space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-auzen-text">Lançamentos Recentes</h2>
+              <span className="bg-auzen-bg text-auzen-text/70 px-3 py-1 rounded-full text-xs font-bold border border-auzen-primary/10">
+                {lancamentosFiltrados.length} de {lancamentos.length}
+              </span>
+            </div>
+
+            {/* Filtro de tipo */}
+            <div className="flex bg-auzen-bg rounded-lg p-1 border border-gray-200">
+              {(['Todos', 'Receita', 'Despesa'] as FiltroTipo[]).map((opcao) => (
+                <button
+                  key={opcao}
+                  type="button"
+                  onClick={() => setFiltroTipo(opcao)}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                    filtroTipo === opcao
+                      ? opcao === 'Receita'
+                        ? 'bg-auzen-mint/40 text-green-800 shadow-sm'
+                        : opcao === 'Despesa'
+                          ? 'bg-red-100 text-red-800 shadow-sm'
+                          : 'bg-auzen-white text-auzen-text shadow-sm'
+                      : 'text-auzen-text/60 hover:text-auzen-text'
+                  }`}
+                >
+                  {opcao === 'Todos' ? 'Todos' : opcao === 'Receita' ? 'Apenas Receitas' : 'Apenas Despesas'}
+                </button>
+              ))}
+            </div>
           </div>
           
           <div className="overflow-x-auto overflow-y-auto">
-            {lancamentos.length === 0 ? (
+            {lancamentosFiltrados.length === 0 ? (
               <div className="p-8 text-center text-gray-400">
-                <p>Nenhum lançamento registrado ainda.</p>
+                <p>
+                  {lancamentos.length === 0
+                    ? 'Nenhum lançamento registrado ainda.'
+                    : 'Nenhum lançamento corresponde ao filtro selecionado.'
+                  }
+                </p>
               </div>
             ) : (
               <table className="w-full text-left bg-auzen-white">
@@ -292,11 +411,17 @@ export default function Lancamentos() {
                     <th className="px-6 py-3 font-semibold text-sm text-auzen-text">Descrição</th>
                     <th className="px-6 py-3 font-semibold text-sm text-auzen-text">Categoria</th>
                     <th className="px-6 py-3 font-semibold text-sm text-right text-auzen-text">Valor</th>
+                    <th className="px-4 py-3 font-semibold text-sm text-center text-auzen-text w-24">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {lancamentos.map((item) => (
-                    <tr key={item.id} className="hover:bg-auzen-lilac/50 transition-colors cursor-pointer group bg-auzen-white">
+                  {lancamentosFiltrados.map((item) => (
+                    <tr
+                      key={item.id}
+                      className={`hover:bg-auzen-lilac/50 transition-colors group bg-auzen-white ${
+                        editingId === item.id ? 'ring-2 ring-amber-300 ring-inset bg-amber-50/30' : ''
+                      }`}
+                    >
                       <td className="px-6 py-4 text-sm text-auzen-text whitespace-nowrap">
                         {/* Gambiarra para evitar fuso horário que altera o dia selecionado */}
                         {new Date(item.data + 'T12:00:00Z').toLocaleDateString('pt-BR')}
@@ -329,6 +454,24 @@ export default function Lancamentos() {
                             -{formatCurrency(item.valor)}
                           </span>
                         )}
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => handleEditar(item)}
+                            className="text-gray-400 hover:text-amber-600 transition-colors p-1.5 rounded-full hover:bg-amber-50 cursor-pointer"
+                            title="Editar lançamento"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            onClick={() => handleEliminar(item.id)}
+                            className="text-gray-400 hover:text-red-500 transition-colors p-1.5 rounded-full hover:bg-red-50 cursor-pointer"
+                            title="Eliminar lançamento"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

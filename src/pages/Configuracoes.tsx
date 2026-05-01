@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useCategoriasStore } from '../store/useCategoriasStore';
-import { useLancamentosStore } from '../store/useLancamentosStore';
+import { useLancamentosStore, ensureIds } from '../store/useLancamentosStore';
 import { useConfigStore } from '../store/useConfigStore';
 import { useServicosStore } from '../store/useServicosStore';
 import { useAuthStore } from '../store/useAuthStore';
@@ -143,10 +143,15 @@ export default function Configuracoes() {
         servicos: useServicosStore.getState().servicos,
       };
 
-      await uploadBackup(accessToken, backupData);
+      const result = await uploadBackup(accessToken, backupData);
       const now = new Date().toLocaleString('pt-BR');
       setUltimoBackup(now);
-      alert('Backup realizado com sucesso no Google Drive!');
+      
+      let msg = 'Backup realizado com sucesso no Google Drive!';
+      if (result.recoveryCreated) {
+        msg += '\n\n✅ Ponto de recuperação criado com sucesso (auzen_backup_RECUPERACAO.json).';
+      }
+      alert(msg);
     } catch (error) {
       console.error(error);
       alert('Erro ao realizar backup.');
@@ -160,7 +165,7 @@ export default function Configuracoes() {
     try {
       const data = await downloadBackup(accessToken);
       
-      if (data.lancamentos) useLancamentosStore.setState({ lancamentos: data.lancamentos });
+      if (data.lancamentos) useLancamentosStore.setState({ lancamentos: ensureIds(data.lancamentos) });
       if (data.categorias) useCategoriasStore.setState({ categorias: data.categorias });
       if (data.concorrentes) useMercadoStore.setState({ concorrentes: data.concorrentes });
       if (data.precosBaseAuzen) useMercadoStore.setState({ precosBaseAuzen: data.precosBaseAuzen });
